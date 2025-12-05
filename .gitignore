@@ -1,0 +1,30 @@
+# Virtual environment
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Django
+*.log
+*.pot
+*.pyc
+db.sqlite3
+db.sqlite3-journal
+media
+
+# Environment variables (IMPORTANT - keeps API keys secret!)
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
