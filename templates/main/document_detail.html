@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ document.title|default:"Chat" }} - Claudex StudyMate{% endblock %}
+
+{% block extra_head %}
+<style>
+    .progress-container { display: none; }
+    .progress-container.active { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="document-header">
+        <h1>{{ document.title|default:"Untitled Chat" }}</h1>
+        <p class="meta">Uploaded {{ document.uploaded_at|date:"M d, Y H:i" }} | {{ document.session_count }} sessions</p>
+
+        {% if document.status == 'uploaded' or document.status == 'error' %}
+        <button id="generate-btn" class="btn btn-primary" onclick="generateIndex()">
+            Generate Index
+        </button>
+        {% endif %}
+
+        <div id="progress-container" class="progress-container">
+            <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <p id="progress-text">Initializing...</p>
+        </div>
+
+        {% if document.status == 'error' %}
+        <div class="error-message">
+            <strong>Error:</strong> {{ document.error_message }}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if sessions %}
+    <div class="index-section">
+        <h2>Table of Contents</h2>
+        <ol class="toc-list">
+            {% for session in sessions %}
+            <li>
+                <a href="#session-{{ session.order }}">
+                    <span class="session-label">{{ session.label|default:"Unlabeled" }}</span>
+                    <span class="session-preview">{{ session.question_preview }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ol>
+    </div>
+
+    <div class="sessions-section">
+        <h2>Sessions</h2>
+        {% for session in sessions %}
+        <div id="session-{{ session.order }}" class="session-card">
+            <div class="session-header">
+                <span class="session-number">#{{ session.order }}</span>
+                <span class="session-label-badge">{{ session.label|default:"Unlabeled" }}</span>
+                <a href="#top" class="back-to-top">↑ Top</a>
+            </div>
+
+            <div class="qa-block">
+                <div class="question">
+                    <strong>Question:</strong>
+                    <div class="content">{{ session.question|linebreaks }}</div>
+                </div>
+                <div class="answer">
+                    <strong>Answer:</strong>
+                    <div class="content">{{ session.answer|linebreaks }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No sessions yet. Click "Generate Index" to parse and label your chat.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function generateIndex() {
+    const btn = document.getElementById('generate-btn');
+    const progressContainer = document.getElementById('progress-container');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+    progressContainer.classList.add('active');
+
+    const eventSource = new EventSource("{% url 'generate_index' document.id %}");
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+            const percent = (data.current / data.total) * 100;
+            progressFill.style.width = percent + '%';
+            progressText.textContent = data.message;
+        } else if (data.type === 'complete') {
+            eventSource.close();
+            window.location.reload();
+        } else if (data.type === 'error') {
+            eventSource.close();
+            progressText.textContent = 'Error: ' + data.message;
+            progressFill.style.backgroundColor = '#e74c3c';
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    };
+
+    eventSource.onerror = function() {
+        eventSource.close();
+        progressText.textContent = 'Connection lost. Please refresh and try again.';
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+    };
+}
+</script>
+{% endblock %}

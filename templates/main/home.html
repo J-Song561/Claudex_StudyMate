@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Chat - Claudex StudyMate{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="upload-section">
+        <h1>Upload Your Claude Chat</h1>
+        <p class="subtitle">Paste your exported chat to organize it into indexed Q&A sessions</p>
+
+        <form method="post" action="{% url 'upload' %}" class="upload-form">
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="title">Title (optional)</label>
+                <input type="text" id="title" name="title" placeholder="e.g., Machine Learning Study Session">
+            </div>
+
+            <div class="form-group">
+                <label for="content">Chat Content</label>
+                <textarea
+                    id="content"
+                    name="content"
+                    rows="15"
+                    placeholder="Paste your Claude chat here (Ctrl+A, Ctrl+C from your chat)..."
+                    required
+                ></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Upload Chat</button>
+        </form>
+    </div>
+
+    {% if recent_documents %}
+    <div class="recent-section">
+        <h2>Recent Uploads</h2>
+        <ul class="document-list">
+            {% for doc in recent_documents %}
+            <li>
+                <a href="{% url 'document_detail' doc.id %}">
+                    <span class="doc-title">{{ doc.title|default:"Untitled Chat" }}</span>
+                    <span class="doc-meta">{{ doc.session_count }} sessions - {{ doc.uploaded_at|date:"M d, Y H:i" }}</span>
+                    <span class="doc-status status-{{ doc.status }}">{{ doc.get_status_display }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
