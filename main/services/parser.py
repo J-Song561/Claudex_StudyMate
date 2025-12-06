@@ -89,7 +89,7 @@ def _parse_plain_text(content: str) -> list[ParsedSession]:
     Parse plain text chat (copied from Claude web interface).
 
     Strategy: Find short lines ending with ? as questions,
-    then collect following paragraphs as answers until next question.
+    but only if they're followed by substantial answer content.
     """
     sessions = []
 
@@ -100,13 +100,12 @@ def _parse_plain_text(content: str) -> list[ParsedSession]:
     if not paragraphs:
         return []
 
-    # Find questions: typically shorter paragraphs ending with ?
-    # or containing a question mark and being relatively short
+    # Find questions: short paragraphs that are followed by longer content
     question_indices = []
 
     for i, para in enumerate(paragraphs):
-        # Check if this looks like a question
-        if _is_likely_question(para):
+        # Check if this looks like a user question
+        if _is_likely_user_question(para, paragraphs, i):
             question_indices.append(i)
 
     if not question_indices:
@@ -134,53 +133,70 @@ def _parse_plain_text(content: str) -> list[ParsedSession]:
     return sessions
 
 
-def _is_likely_question(text: str) -> bool:
+def _is_likely_user_question(text: str, all_paragraphs: list, current_index: int) -> bool:
     """
-    Determine if a paragraph is likely a user's question.
+    Determine if a paragraph is likely a USER's question (not Claude's follow-up).
 
-    Heuristics:
-    - Ends with ?
-    - Relatively short (questions are usually concise)
-    - Doesn't look like an answer (no long explanations)
+    Key insight: User questions are followed by LONG answers.
+    Claude's follow-up questions ("Does this make sense?") are at the END of answers,
+    followed by the next user question (short) or nothing.
     """
     text = text.strip()
-
-    # Must end with question mark or be a short imperative
-    ends_with_question = text.rstrip().endswith('?')
 
     # Count lines and length
     lines = text.split('\n')
     line_count = len(lines)
     char_count = len(text)
 
-    # Questions are typically:
-    # - End with ?
-    # - Short (under 500 chars for most questions)
-    # - Few lines (usually 1-3)
+    # Must be relatively short to be a question
+    if char_count > 500 or line_count > 5:
+        return False
 
-    if ends_with_question:
-        # Definitely a question if ends with ? and is reasonably short
-        if char_count < 1000 and line_count <= 5:
-            return True
+    # Check what comes AFTER this paragraph
+    if current_index + 1 < len(all_paragraphs):
+        next_para = all_paragraphs[current_index + 1]
+        next_len = len(next_para)
 
-    # Short imperative statements can also be questions/requests
-    # e.g., "Tell me more about attention"
-    imperative_starters = [
-        'tell me', 'explain', 'show me', 'describe', 'what', 'how', 'why',
-        'when', 'where', 'which', 'can you', 'could you', 'please',
-        'i want', "i'd like", 'help me', 'give me'
+        # If followed by a LONG paragraph (answer), this is likely a user question
+        # If followed by a SHORT paragraph, this might be Claude's follow-up question
+
+        # User question → Long answer (500+ chars typically)
+        # Claude follow-up → Next user question (short) or end
+
+        if next_len > 300:  # Followed by substantial content = likely user question
+            # Additional checks for question-like structure
+            if _looks_like_question(text):
+                return True
+    else:
+        # Last paragraph - not a question (questions need answers)
+        return False
+
+    return False
+
+
+def _looks_like_question(text: str) -> bool:
+    """Check if text has question-like characteristics."""
+    text = text.strip()
+    text_lower = text.lower()
+
+    # Ends with question mark
+    if text.endswith('?'):
+        return True
+
+    # Starts with question words or imperatives
+    question_starters = [
+        'what ', 'how ', 'why ', 'when ', 'where ', 'which ', 'who ',
+        'is ', 'are ', 'can ', 'could ', 'do ', 'does ', 'did ',
+        'tell me', 'explain', 'show me', 'describe', 'help me',
+        'i want', "i'd like", 'please', 'give me'
     ]
 
-    text_lower = text.lower()
-    if any(text_lower.startswith(starter) for starter in imperative_starters):
-        if char_count < 500 and line_count <= 3:
-            return True
+    if any(text_lower.startswith(starter) for starter in question_starters):
+        return True
 
-    # Very short single lines without code blocks are likely questions
-    if line_count == 1 and char_count < 200 and '```' not in text:
-        # Check it's not a heading or label
-        if not text.startswith('#') and ':' not in text[:20]:
-            return True
+    # Very short statements (likely questions/requests)
+    if len(text) < 100:
+        return True
 
     return False
 
