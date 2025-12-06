@@ -5,11 +5,12 @@ Uses Gemini API to generate concise topic labels for Q&A sessions.
 """
 
 import os
-import google.generativeai as genai
 
 
 def get_client():
     """Configure and return Gemini client."""
+    import google.generativeai as genai
+
     api_key = os.environ.get('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError(
