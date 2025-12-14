@@ -1,4 +1,5 @@
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -56,6 +57,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'Claudex.wsgi.application'
+
+env_file = BASE_DIR / 'env' / 'gemini_api_key.env'
+load_dotenv(env_file)
 
 
 # Database
