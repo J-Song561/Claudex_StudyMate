@@ -1,5 +1,4 @@
 import json
-import time
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -7,7 +6,7 @@ from django.utils import timezone
 
 from .models import ChatDocument, Session
 from .forms import ChatUploadForm
-from .services.parser import parse_chat, validate_parsed_sessions
+from .services.parser import parse_chat_with_metadata, validate_parsed_sessions
 from .services.labeler import generate_label
 
 
@@ -25,9 +24,18 @@ def upload(request):
     form = ChatUploadForm(request.POST)
 
     if form.is_valid():
+        content = form.cleaned_data['content']
+        user_title = form.cleaned_data.get('title', '').strip()
+
+        # Try to extract metadata from JSON content
+        result = parse_chat_with_metadata(content)
+
+        # Use user-provided title, or extracted title, or default
+        title = user_title or result.title or ''
+
         document = ChatDocument.objects.create(
-            title=form.cleaned_data.get('title', ''),
-            original_content=form.cleaned_data['content'],
+            title=title,
+            original_content=content,
             status='uploaded'
         )
         return redirect('document_detail', document_id=document.id)
@@ -66,8 +74,14 @@ def generate_index(request, document_id):
 
             yield f"data: {json.dumps({'type': 'progress', 'message': 'Parsing chat...', 'current': 0, 'total': 1})}\n\n"
 
-            # Parse the chat
-            parsed_sessions = parse_chat(document.original_content)
+            # Parse the chat with metadata
+            result = parse_chat_with_metadata(document.original_content)
+            parsed_sessions = result.sessions
+
+            # Update title if extracted and not already set
+            if result.title and not document.title:
+                document.title = result.title
+                document.save()
 
             # Validate
             is_valid, error_msg = validate_parsed_sessions(parsed_sessions)
