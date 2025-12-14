@@ -10,12 +10,19 @@ import os
 def get_client():
     """Configure and return Gemini client."""
     import google.generativeai as genai
+    from pathlib import Path
+    from dotenv import load_dotenv
+    
+    # Load environment variables from gemini_api_key.env
+    # Adjust the path based on your project structure
+    env_path = Path(__file__).resolve().parent.parent.parent / 'env' / 'gemini_api_key.env'
+    load_dotenv(env_path)
 
     api_key = os.environ.get('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError(
             "GOOGLE_API_KEY environment variable is not set. "
-            "Please set it in your .env file or environment."
+            "Please set it in your env/gemini_api_key.env file."
         )
     genai.configure(api_key=api_key)
     return genai.GenerativeModel('gemini-1.5-flash')
@@ -24,49 +31,61 @@ def get_client():
 def generate_label(question: str, answer: str) -> str:
     """
     Generate a topic label for a Q&A session using Gemini.
-
-    Args:
-        question: The user's question
-        answer: The AI's answer
-
-    Returns:
-        A concise topic label (2-5 words)
     """
-    model = get_client()
+    try:
+        model = get_client()
+        
+        # Truncate very long content to save tokens
+        max_q_len = 500
+        max_a_len = 1000
+        q_truncated = question[:max_q_len] + "..." if len(question) > max_q_len else question
+        a_truncated = answer[:max_a_len] + "..." if len(answer) > max_a_len else answer
+        
+        prompt = f"""You are a helpful assistant that creates concise topic labels for educational Q&A sessions.
 
-    # Truncate very long content to save tokens
-    max_q_len = 500
-    max_a_len = 1000
-
-    q_truncated = question[:max_q_len] + "..." if len(question) > max_q_len else question
-    a_truncated = answer[:max_a_len] + "..." if len(answer) > max_a_len else answer
-
-    prompt = f"""Given this Q&A from a study session, provide a concise topic label (2-5 words).
-The label should capture the main subject or concept being discussed.
+Your task: Read the question and answer below, then create a SHORT topic label (2-6 words maximum) that captures the main concept.
 
 Question: {q_truncated}
 
-Answer (excerpt): {a_truncated}
+Answer: {a_truncated}
 
-Return ONLY the label, nothing else. No quotes, no explanation.
-Examples of good labels: Attention Mechanism, Python List Comprehension, React Hooks vs State, Binary Search Algorithm, CSS Flexbox Layout
+Instructions:
+- Create a label that describes the TOPIC, not the question structure
+- Use 2-6 words maximum
+- Be specific and descriptive
+- Use title case
+- Do NOT include quotes or punctuation
+- Output ONLY the label, nothing else
+
+Examples: "Deep Learning vs Machine Learning" | "Neural Network Architectures" | "Loss Functions in ML"
 
 Label:"""
-
-    try:
+        
+        print(f"🔍 Calling Gemini API for question: {question[:50]}...")
         response = model.generate_content(prompt)
         label = response.text.strip()
-
-        # Clean up the label - remove quotes if present
-        label = label.strip('"\'')
-
+        print(f"✅ Gemini returned: '{label}'")
+        
+        # Clean up the label
+        label = label.strip('"\'.,!?')
+        
+        # Remove common prefixes
+        for prefix in ['label:', 'topic:', 'title:']:
+            if label.lower().startswith(prefix):
+                label = label[len(prefix):].strip()
+        
         # Limit label length
         if len(label) > 100:
             label = label[:100]
-
+        
         return label
-
+    
     except Exception as e:
+        # Log the error for debugging
+        print(f"❌ Labeling error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        
         # Return a fallback label on error
         return "Session (labeling failed)"
 
