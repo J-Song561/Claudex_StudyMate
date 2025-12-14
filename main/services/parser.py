@@ -109,6 +109,10 @@ def _parse_json_format(content: str) -> ParseResult | None:
         ]
     }
     """
+    # Strip console wrapper markers if present
+    if '=== COPY THIS JSON ===' in content:
+        content = content.replace('=== COPY THIS JSON ===', '').replace('=== END ===', '').strip()
+
     # Quick check if it looks like JSON
     if not (content.startswith('{') or content.startswith('[')):
         print(f"[DEBUG] Content doesn't look like JSON. First 100 chars: {content[:100]}")
