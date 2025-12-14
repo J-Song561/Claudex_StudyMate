@@ -25,7 +25,7 @@ def get_client():
             "Please set it in your env/gemini_api_key.env file."
         )
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-1.5-flash-latest')
 
 
 def generate_label(question: str, answer: str) -> str:
