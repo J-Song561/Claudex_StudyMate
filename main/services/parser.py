@@ -1,8 +1,11 @@
 """
 Chat Parser Service
 
-Parses plain text Claude chat exports into Q&A session pairs.
-Uses Gemini AI for intelligent parsing.
+Parses chat exports into Q&A session pairs.
+Supports:
+1. JSON format from browser scraper (most accurate)
+2. AI-powered parsing with Gemini
+3. Heuristic fallback parsing
 """
 
 import os
@@ -19,26 +22,131 @@ class ParsedSession:
     answer: str
 
 
+@dataclass
+class ParseResult:
+    """Result of parsing including metadata"""
+    sessions: list[ParsedSession]
+    title: str
+    platform: str
+
+
 def parse_chat(content: str) -> list[ParsedSession]:
     """
-    Parse a Claude chat export into Q&A sessions using Gemini AI.
+    Parse a chat export into Q&A sessions.
+
+    Tries in order:
+    1. JSON format (from browser scraper) - most accurate
+    2. AI-powered parsing with Gemini
+    3. Heuristic fallback parsing
 
     Args:
-        content: Raw chat text (copy-pasted from Claude)
+        content: Chat content (JSON or plain text)
 
     Returns:
         List of ParsedSession objects
     """
-    # Normalize line endings
+    content = content.strip()
+
+    # Try JSON format first (from scraper)
+    result = _parse_json_format(content)
+    if result:
+        return result.sessions
+
+    # Normalize line endings for text parsing
     content = content.replace('\r\n', '\n').replace('\r', '\n')
 
-    # Try AI-powered parsing first
+    # Try AI-powered parsing
     sessions = _parse_with_ai(content)
     if sessions:
         return sessions
 
-    # Fallback to simple heuristic parsing
+    # Fallback to heuristic parsing
     return _parse_fallback(content)
+
+
+def parse_chat_with_metadata(content: str) -> ParseResult:
+    """
+    Parse chat and return metadata (title, platform) if available.
+
+    Args:
+        content: Chat content (JSON or plain text)
+
+    Returns:
+        ParseResult with sessions, title, and platform
+    """
+    content = content.strip()
+
+    # Try JSON format first
+    result = _parse_json_format(content)
+    if result:
+        return result
+
+    # Fallback to regular parsing
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+    sessions = _parse_with_ai(content)
+    if not sessions:
+        sessions = _parse_fallback(content)
+
+    return ParseResult(
+        sessions=sessions,
+        title='',
+        platform='unknown'
+    )
+
+
+def _parse_json_format(content: str) -> ParseResult | None:
+    """
+    Parse JSON format from browser scraper.
+
+    Expected format:
+    {
+        "title": "Chat Title",
+        "platform": "claude|chatgpt|gemini",
+        "sessions": [
+            {"question": "...", "answer": "..."},
+            ...
+        ]
+    }
+    """
+    # Quick check if it looks like JSON
+    if not (content.startswith('{') or content.startswith('[')):
+        return None
+
+    try:
+        data = json.loads(content)
+
+        # Handle direct array of sessions
+        if isinstance(data, list):
+            sessions = []
+            for i, item in enumerate(data, 1):
+                question = item.get('question', '').strip()
+                answer = item.get('answer', '').strip()
+                if question and answer:
+                    sessions.append(ParsedSession(order=i, question=question, answer=answer))
+
+            return ParseResult(sessions=sessions, title='', platform='unknown')
+
+        # Handle object with metadata
+        if isinstance(data, dict):
+            title = data.get('title', '')
+            platform = data.get('platform', 'unknown')
+            raw_sessions = data.get('sessions', [])
+
+            sessions = []
+            for i, item in enumerate(raw_sessions, 1):
+                question = item.get('question', '').strip()
+                answer = item.get('answer', '').strip()
+                if question and answer:
+                    sessions.append(ParsedSession(order=i, question=question, answer=answer))
+
+            if sessions:
+                return ParseResult(sessions=sessions, title=title, platform=platform)
+
+    except json.JSONDecodeError:
+        pass
+
+    return None
 
 
 def _parse_with_ai(content: str) -> list[ParsedSession]:
@@ -47,18 +155,18 @@ def _parse_with_ai(content: str) -> list[ParsedSession]:
 
     api_key = os.environ.get('GOOGLE_API_KEY')
     if not api_key:
-        return []  # Fall back to heuristic parsing
+        return []
 
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-1.5-flash')
 
-        # Truncate very long chats to avoid token limits
-        max_chars = 100000  # ~25k tokens
+        # Truncate very long chats
+        max_chars = 100000
         if len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... content truncated ...]"
 
-        prompt = f"""You are a chat parser. Analyze this conversation between a user and an AI assistant (Claude).
+        prompt = f"""You are a chat parser. Analyze this conversation between a user and an AI assistant.
 
 Split it into Question-Answer pairs where:
 - "question" = what the USER asked or said
@@ -83,51 +191,41 @@ Here is the conversation to parse:
         response = model.generate_content(prompt)
         response_text = response.text.strip()
 
-        # Clean up response - remove markdown code blocks if present
+        # Clean up markdown code blocks
         if response_text.startswith('```'):
             response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
             response_text = re.sub(r'\n?```$', '', response_text)
 
-        # Parse JSON
         qa_pairs = json.loads(response_text)
 
-        # Convert to ParsedSession objects
         sessions = []
         for i, pair in enumerate(qa_pairs, 1):
             question = pair.get('question', '').strip()
             answer = pair.get('answer', '').strip()
             if question and answer:
-                sessions.append(ParsedSession(
-                    order=i,
-                    question=question,
-                    answer=answer
-                ))
+                sessions.append(ParsedSession(order=i, question=question, answer=answer))
 
         return sessions
 
     except Exception as e:
         print(f"AI parsing failed: {e}")
-        return []  # Fall back to heuristic parsing
+        return []
 
 
 def _parse_fallback(content: str) -> list[ParsedSession]:
-    """Fallback heuristic parser when AI parsing fails."""
+    """Fallback heuristic parser."""
     sessions = []
 
-    # Split into paragraphs
     paragraphs = re.split(r'\n\s*\n+', content.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
 
-    # Simple alternating pattern: short, long, short, long...
     order = 1
     i = 0
     while i < len(paragraphs) - 1:
         current = paragraphs[i]
         next_para = paragraphs[i + 1]
 
-        # If current is short and next is long, treat as Q&A
         if len(current) < 500 and len(next_para) > 200:
-            # Collect all "answer" paragraphs until next short one
             answer_parts = [next_para]
             j = i + 2
             while j < len(paragraphs) and len(paragraphs[j]) > 300:
@@ -148,19 +246,13 @@ def _parse_fallback(content: str) -> list[ParsedSession]:
 
 
 def validate_parsed_sessions(sessions: list[ParsedSession]) -> tuple[bool, str]:
-    """
-    Validate parsed sessions.
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
+    """Validate parsed sessions."""
     if not sessions:
-        return False, "No Q&A sessions found in the chat. Please check the format."
+        return False, "No Q&A sessions found. Please check the format or try using the browser scraper."
 
     empty_questions = sum(1 for s in sessions if not s.question)
-    empty_answers = sum(1 for s in sessions if not s.answer)
 
     if empty_questions == len(sessions):
-        return False, "All questions are empty. Please check the chat format."
+        return False, "All questions are empty. Please check the format."
 
     return True, ""
