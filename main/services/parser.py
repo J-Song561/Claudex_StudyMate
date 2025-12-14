@@ -111,10 +111,12 @@ def _parse_json_format(content: str) -> ParseResult | None:
     """
     # Quick check if it looks like JSON
     if not (content.startswith('{') or content.startswith('[')):
+        print(f"[DEBUG] Content doesn't look like JSON. First 100 chars: {content[:100]}")
         return None
 
     try:
         data = json.loads(content)
+        print(f"[DEBUG] JSON parsed successfully. Type: {type(data)}")
 
         # Handle direct array of sessions
         if isinstance(data, list):
@@ -132,19 +134,22 @@ def _parse_json_format(content: str) -> ParseResult | None:
             title = data.get('title', '')
             platform = data.get('platform', 'unknown')
             raw_sessions = data.get('sessions', [])
+            print(f"[DEBUG] Dict format. Title: {title}, Platform: {platform}, Raw sessions count: {len(raw_sessions)}")
 
             sessions = []
             for i, item in enumerate(raw_sessions, 1):
                 question = item.get('question', '').strip()
                 answer = item.get('answer', '').strip()
+                print(f"[DEBUG] Session {i}: Q length={len(question)}, A length={len(answer)}")
                 if question and answer:
                     sessions.append(ParsedSession(order=i, question=question, answer=answer))
 
+            print(f"[DEBUG] Valid sessions after filtering: {len(sessions)}")
             if sessions:
                 return ParseResult(sessions=sessions, title=title, platform=platform)
 
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] JSON decode error: {e}")
 
     return None
 
