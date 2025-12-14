@@ -2,12 +2,12 @@
 Chat Parser Service
 
 Parses plain text Claude chat exports into Q&A session pairs.
-Handles multiple formats:
-1. "Human: ... Assistant: ..." markers
-2. Plain text copied from Claude (questions ending with ?)
+Uses Gemini AI for intelligent parsing.
 """
 
+import os
 import re
+import json
 from dataclasses import dataclass
 
 
@@ -21,7 +21,7 @@ class ParsedSession:
 
 def parse_chat(content: str) -> list[ParsedSession]:
     """
-    Parse a Claude chat export into Q&A sessions.
+    Parse a Claude chat export into Q&A sessions using Gemini AI.
 
     Args:
         content: Raw chat text (copy-pasted from Claude)
@@ -32,192 +32,115 @@ def parse_chat(content: str) -> list[ParsedSession]:
     # Normalize line endings
     content = content.replace('\r\n', '\n').replace('\r', '\n')
 
-    # Try format 1: Human/Assistant markers
-    sessions = _parse_with_markers(content)
+    # Try AI-powered parsing first
+    sessions = _parse_with_ai(content)
     if sessions:
         return sessions
 
-    # Try format 2: Plain text (detect questions by ? and paragraph structure)
-    sessions = _parse_plain_text(content)
-    if sessions:
-        return sessions
-
-    # Fallback: Simple paragraph pairing
+    # Fallback to simple heuristic parsing
     return _parse_fallback(content)
 
 
-def _parse_with_markers(content: str) -> list[ParsedSession]:
-    """Parse chat with Human:/Assistant: markers."""
-    sessions = []
+def _parse_with_ai(content: str) -> list[ParsedSession]:
+    """Use Gemini to intelligently parse the chat into Q&A pairs."""
+    import google.generativeai as genai
 
-    # Pattern to find Human/User messages
-    human_pattern = re.compile(
-        r'(?:Human|User|H)\s*:\s*(.*?)(?=(?:Assistant|Claude|A)\s*:|$)',
-        re.DOTALL | re.IGNORECASE
-    )
-    assistant_pattern = re.compile(
-        r'(?:Assistant|Claude|A)\s*:\s*(.*?)(?=(?:Human|User|H)\s*:|$)',
-        re.DOTALL | re.IGNORECASE
-    )
+    api_key = os.environ.get('GOOGLE_API_KEY')
+    if not api_key:
+        return []  # Fall back to heuristic parsing
 
-    human_matches = list(human_pattern.finditer(content))
-    assistant_matches = list(assistant_pattern.finditer(content))
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
 
-    if not human_matches:
-        return []
+        # Truncate very long chats to avoid token limits
+        max_chars = 100000  # ~25k tokens
+        if len(content) > max_chars:
+            content = content[:max_chars] + "\n\n[... content truncated ...]"
 
-    order = 1
-    for h_match in human_matches:
-        question = h_match.group(1).strip()
+        prompt = f"""You are a chat parser. Analyze this conversation between a user and an AI assistant (Claude).
 
-        # Find the assistant response after this human message
-        answer = ""
-        for a_match in assistant_matches:
-            if a_match.start() >= h_match.start():
-                answer = a_match.group(1).strip()
-                break
+Split it into Question-Answer pairs where:
+- "question" = what the USER asked or said
+- "answer" = what the AI ASSISTANT responded
 
-        if question:
-            sessions.append(ParsedSession(order=order, question=question, answer=answer))
-            order += 1
+IMPORTANT RULES:
+1. User messages are typically SHORT (questions, requests, comments)
+2. Assistant messages are typically LONG (explanations, with bullet points, code, examples)
+3. Don't confuse the assistant's follow-up questions (like "Does this make sense?") as user questions
+4. Each Q&A pair should be one exchange (user asks → assistant answers)
 
-    return sessions
+Return ONLY valid JSON array, no other text:
+[
+  {{"question": "user's first question", "answer": "assistant's first response"}},
+  {{"question": "user's second question", "answer": "assistant's second response"}}
+]
 
+Here is the conversation to parse:
 
-def _parse_plain_text(content: str) -> list[ParsedSession]:
-    """
-    Parse plain text chat (copied from Claude web interface).
+{content}"""
 
-    Strategy: Find short lines ending with ? as questions,
-    but only if they're followed by substantial answer content.
-    """
-    sessions = []
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
 
-    # Split into paragraphs (separated by blank lines)
-    paragraphs = re.split(r'\n\s*\n+', content.strip())
-    paragraphs = [p.strip() for p in paragraphs if p.strip()]
+        # Clean up response - remove markdown code blocks if present
+        if response_text.startswith('```'):
+            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
+            response_text = re.sub(r'\n?```$', '', response_text)
 
-    if not paragraphs:
-        return []
+        # Parse JSON
+        qa_pairs = json.loads(response_text)
 
-    # Find questions: short paragraphs that are followed by longer content
-    question_indices = []
+        # Convert to ParsedSession objects
+        sessions = []
+        for i, pair in enumerate(qa_pairs, 1):
+            question = pair.get('question', '').strip()
+            answer = pair.get('answer', '').strip()
+            if question and answer:
+                sessions.append(ParsedSession(
+                    order=i,
+                    question=question,
+                    answer=answer
+                ))
 
-    for i, para in enumerate(paragraphs):
-        # Check if this looks like a user question
-        if _is_likely_user_question(para, paragraphs, i):
-            question_indices.append(i)
+        return sessions
 
-    if not question_indices:
-        return []
-
-    # Build sessions: each question + all following paragraphs until next question
-    order = 1
-    for idx, q_idx in enumerate(question_indices):
-        question = paragraphs[q_idx]
-
-        # Answer is everything from after this question until next question (or end)
-        if idx + 1 < len(question_indices):
-            next_q_idx = question_indices[idx + 1]
-        else:
-            next_q_idx = len(paragraphs)
-
-        # Collect answer paragraphs
-        answer_paragraphs = paragraphs[q_idx + 1:next_q_idx]
-        answer = '\n\n'.join(answer_paragraphs)
-
-        if question and answer:
-            sessions.append(ParsedSession(order=order, question=question, answer=answer))
-            order += 1
-
-    return sessions
-
-
-def _is_likely_user_question(text: str, all_paragraphs: list, current_index: int) -> bool:
-    """
-    Determine if a paragraph is likely a USER's question (not Claude's follow-up).
-
-    Key insight: User questions are followed by LONG answers.
-    Claude's follow-up questions ("Does this make sense?") are at the END of answers,
-    followed by the next user question (short) or nothing.
-    """
-    text = text.strip()
-
-    # Count lines and length
-    lines = text.split('\n')
-    line_count = len(lines)
-    char_count = len(text)
-
-    # Must be relatively short to be a question
-    if char_count > 500 or line_count > 5:
-        return False
-
-    # Check what comes AFTER this paragraph
-    if current_index + 1 < len(all_paragraphs):
-        next_para = all_paragraphs[current_index + 1]
-        next_len = len(next_para)
-
-        # If followed by a LONG paragraph (answer), this is likely a user question
-        # If followed by a SHORT paragraph, this might be Claude's follow-up question
-
-        # User question → Long answer (500+ chars typically)
-        # Claude follow-up → Next user question (short) or end
-
-        if next_len > 300:  # Followed by substantial content = likely user question
-            # Additional checks for question-like structure
-            if _looks_like_question(text):
-                return True
-    else:
-        # Last paragraph - not a question (questions need answers)
-        return False
-
-    return False
-
-
-def _looks_like_question(text: str) -> bool:
-    """Check if text has question-like characteristics."""
-    text = text.strip()
-    text_lower = text.lower()
-
-    # Ends with question mark
-    if text.endswith('?'):
-        return True
-
-    # Starts with question words or imperatives
-    question_starters = [
-        'what ', 'how ', 'why ', 'when ', 'where ', 'which ', 'who ',
-        'is ', 'are ', 'can ', 'could ', 'do ', 'does ', 'did ',
-        'tell me', 'explain', 'show me', 'describe', 'help me',
-        'i want', "i'd like", 'please', 'give me'
-    ]
-
-    if any(text_lower.startswith(starter) for starter in question_starters):
-        return True
-
-    # Very short statements (likely questions/requests)
-    if len(text) < 100:
-        return True
-
-    return False
+    except Exception as e:
+        print(f"AI parsing failed: {e}")
+        return []  # Fall back to heuristic parsing
 
 
 def _parse_fallback(content: str) -> list[ParsedSession]:
-    """Fallback: pair consecutive paragraphs as Q&A."""
+    """Fallback heuristic parser when AI parsing fails."""
     sessions = []
 
+    # Split into paragraphs
     paragraphs = re.split(r'\n\s*\n+', content.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
 
+    # Simple alternating pattern: short, long, short, long...
     order = 1
     i = 0
     while i < len(paragraphs) - 1:
-        question = paragraphs[i]
-        answer = paragraphs[i + 1]
+        current = paragraphs[i]
+        next_para = paragraphs[i + 1]
 
-        if question and answer:
-            sessions.append(ParsedSession(order=order, question=question, answer=answer))
+        # If current is short and next is long, treat as Q&A
+        if len(current) < 500 and len(next_para) > 200:
+            # Collect all "answer" paragraphs until next short one
+            answer_parts = [next_para]
+            j = i + 2
+            while j < len(paragraphs) and len(paragraphs[j]) > 300:
+                answer_parts.append(paragraphs[j])
+                j += 1
+
+            sessions.append(ParsedSession(
+                order=order,
+                question=current,
+                answer='\n\n'.join(answer_parts)
+            ))
             order += 1
-            i += 2
+            i = j
         else:
             i += 1
 
