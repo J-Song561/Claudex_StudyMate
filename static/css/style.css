@@ -253,16 +253,18 @@ footer {
 
 .toc-list {
     list-style-position: inside;
+    padding: 0;
 }
 
 .toc-list li {
-    margin-bottom: 0.5rem;
+    margin-bottom: 12px;
+    line-height: 1.6;
 }
 
 .toc-list a {
     text-decoration: none;
     color: var(--text-color);
-    display: inline-flex;
+    display: flex; /* Changed from inline-flex to flex */
     align-items: baseline;
     gap: 0.5rem;
 }
@@ -274,11 +276,17 @@ footer {
 .session-label {
     font-weight: 500;
     color: var(--primary-color);
+    white-space: nowrap; /* NEW: Prevent label wrapping */
+    flex-shrink: 0; /* NEW: Don't compress label */
 }
 
 .session-preview {
     color: var(--text-muted);
     font-size: 0.875rem;
+    white-space: nowrap; /* NEW: Keep on one line */
+    overflow: hidden; /* NEW: Hide overflow */
+    text-overflow: ellipsis; /* NEW: Add "..." */
+    flex: 1; /* NEW: Take remaining space */
 }
 
 /* Session cards */

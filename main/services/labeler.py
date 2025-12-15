@@ -5,6 +5,7 @@ Uses Gemini API to generate concise topic labels for Q&A sessions.
 """
 
 import os
+import time
 
 
 def get_client():
@@ -25,8 +26,7 @@ def get_client():
             "Please set it in your env/gemini_api_key.env file."
         )
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-1.5-flash-latest')
-
+    return genai.GenerativeModel('gemini-2.5-flash-lite')
 
 def generate_label(question: str, answer: str) -> str:
     """
@@ -78,6 +78,10 @@ Label:"""
         if len(label) > 100:
             label = label[:100]
         
+        # Add delay to respect rate limits (5 requests per minute = 12 seconds between requests)
+        print("⏳ Waiting 13 seconds to respect rate limits...")
+        time.sleep(13)
+        
         return label
     
     except Exception as e:
@@ -85,6 +89,19 @@ Label:"""
         print(f"❌ Labeling error: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
+        
+        # If it's a rate limit error, wait and retry once
+        if "ResourceExhausted" in str(e) or "429" in str(e):
+            print("⏳ Rate limit hit, waiting 20 seconds before retry...")
+            time.sleep(20)
+            try:
+                model = get_client()
+                response = model.generate_content(prompt)
+                label = response.text.strip().strip('"\'.,!?')
+                time.sleep(13)  # Wait again after successful retry
+                return label
+            except:
+                pass
         
         # Return a fallback label on error
         return "Session (labeling failed)"
