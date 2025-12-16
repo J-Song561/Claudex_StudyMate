@@ -6,6 +6,9 @@ Uses Gemini API to generate concise topic labels for Q&A sessions.
 
 import os
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_client():
@@ -60,11 +63,11 @@ Instructions:
 Examples: "Deep Learning vs Machine Learning" | "Neural Network Architectures" | "Loss Functions in ML"
 
 Label:"""
-        
-        print(f"🔍 Calling Gemini API for question: {question[:50]}...")
+
+        logger.info(f"Calling Gemini API for question: {question[:50]}...")
         response = model.generate_content(prompt)
         label = response.text.strip()
-        print(f"✅ Gemini returned: '{label}'")
+        logger.info(f"Gemini returned: '{label}'")
         
         # Clean up the label
         label = label.strip('"\'.,!?')
@@ -77,22 +80,20 @@ Label:"""
         # Limit label length
         if len(label) > 100:
             label = label[:100]
-        
+
         # Add delay to respect rate limits (5 requests per minute = 12 seconds between requests)
-        print("⏳ Waiting 13 seconds to respect rate limits...")
+        logger.debug("Waiting 13 seconds to respect rate limits...")
         time.sleep(13)
-        
+
         return label
-    
+
     except Exception as e:
         # Log the error for debugging
-        print(f"❌ Labeling error: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        
+        logger.error(f"Labeling error: {type(e).__name__}: {e}", exc_info=True)
+
         # If it's a rate limit error, wait and retry once
         if "ResourceExhausted" in str(e) or "429" in str(e):
-            print("⏳ Rate limit hit, waiting 20 seconds before retry...")
+            logger.warning("Rate limit hit, waiting 20 seconds before retry...")
             time.sleep(20)
             try:
                 model = get_client()
@@ -100,9 +101,9 @@ Label:"""
                 label = response.text.strip().strip('"\'.,!?')
                 time.sleep(13)  # Wait again after successful retry
                 return label
-            except:
-                pass
-        
+            except Exception as retry_error:
+                logger.error(f"Retry failed: {retry_error}")
+
         # Return a fallback label on error
         return "Session (labeling failed)"
 

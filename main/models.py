@@ -12,11 +12,11 @@ class ChatDocument(models.Model):
         ('error', 'Error'),
     ]
 
-    title = models.CharField(max_length=255, blank=True)
+    title = models.CharField(max_length=255, blank=True, db_index=True)
     original_content = models.TextField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='uploaded')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='uploaded', db_index=True)
     error_message = models.TextField(blank=True)
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True, db_index=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
