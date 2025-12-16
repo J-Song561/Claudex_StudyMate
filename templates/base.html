@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Claudex StudyMate{% endblock %}</title>
+    <title>{% block title %}StudyMate{% endblock %}</title>
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     {% block extra_head %}{% endblock %}
@@ -11,7 +11,7 @@
 <body>
     <header>
         <nav>
-            <a href="{% url 'home' %}" class="logo">Claudex StudyMate</a>
+            <a href="{% url 'home' %}" class="logo">StudyMate</a>
         </nav>
     </header>
 
@@ -20,7 +20,7 @@
     </main>
 
     <footer>
-        <p>Claudex StudyMate - Organize your Claude study sessions</p>
+        <p>StudyMate - Organize your ai chat sessions</p>
     </footer>
 
     {% block extra_js %}{% endblock %}
