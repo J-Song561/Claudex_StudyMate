@@ -1,0 +1,69 @@
+{% load static %}<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="theme-color" content="#1f2a26">
+    <title>Planner</title>
+    <link rel="manifest" href="{% url 'planner:manifest' %}">
+    <link rel="icon" type="image/png" href="{% static 'planner/icon-192.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'planner/icon-192.png' %}">
+    <link rel="stylesheet" href="{% static 'planner/app.css' %}">
+</head>
+<body>
+    <div class="backdrop" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <div class="app">
+        <section class="focus glass" id="focus" aria-label="Топ-3 задачи">
+            <header class="focus-head">
+                <span class="focus-label">В фокусе</span>
+                <button class="focus-count" id="toggle-all" type="button" aria-expanded="false">
+                    <span id="open-count">0</span> открытых
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+                </button>
+            </header>
+            <ol class="task-list" id="top-list"></ol>
+            <p class="focus-empty" id="top-empty">Задач нет. Напиши первую внизу.</p>
+            <div class="all-tasks" id="all-tasks" hidden>
+                <div class="divider"></div>
+                <ol class="task-list" id="all-list"></ol>
+                <p class="focus-empty" id="rest-empty">Больше задач нет.</p>
+            </div>
+        </section>
+
+        <main class="chat" id="chat" aria-live="polite">
+            <div class="chat-empty" id="chat-empty">
+                <p>Напиши задачу обычной фразой</p>
+                <p class="muted">завтра в 15:00 созвон с куратором !</p>
+            </div>
+        </main>
+
+        <form class="composer glass" id="composer" autocomplete="off">
+            <div class="field">
+                <input id="input" name="text" type="text" placeholder="Напиши задачу…" maxlength="1000" enterkeyhint="send" aria-label="Сообщение">
+                <button class="send" type="submit" aria-label="Отправить">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5M5 10l5-5 5 5"/></svg>
+                </button>
+            </div>
+            <div class="chips">
+                <button type="button" data-insert="сегодня ">сегодня</button>
+                <button type="button" data-insert="завтра ">завтра</button>
+                <button type="button" data-insert="в 10:00 ">время</button>
+                <button type="button" data-insert=" !">! важно</button>
+                <button type="button" data-insert=" // ">заметка</button>
+                <span class="sep"></span>
+                <button type="button" data-send="задачи">задачи</button>
+                <button type="button" data-send="помощь">?</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        window.PLANNER = {
+            api: "{% url 'planner:state' %}".replace('state/', ''),
+            sw: "{% url 'planner:sw' %}",
+        };
+    </script>
+    <script src="{% static 'planner/app.js' %}" defer></script>
+</body>
+</html>
